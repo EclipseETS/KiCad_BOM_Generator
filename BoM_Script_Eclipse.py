@@ -28,14 +28,62 @@ import pandas as pd
 # Todo: Faire une interface graphique
 
 # Todo: Inclure le nom du responsable de la commande
+#!/usr/bin/env python
+import urllib2
+from bs4 import BeautifulSoup
+import sys
+import re
+
+def digikey_part_is_reeled(html_tree):
+    '''Returns True if this Digi-Key part is reeled or Digi-reeled.'''
+    qty_tiers = list(get_digikey_price_tiers(html_tree).keys())
+    if len(qty_tiers) > 0 and min(qty_tiers) >= 100:
+        return True
+    if html_tree.find('table',
+                      id='product-details-reel-pricing') is not None:
+        return True
+    return False
+
+    
+def get_digikey_price(pnumber, quantity):
+    page = urllib2.urlopen( \
+    "http://search.digikey.ca/scripts/DkSearch/dksus.dll?Detail?name=" + pnumber)
+
+    soup = BeautifulSoup(page,'lxml')
+
+    '''Get the pricing tiers from the parsed tree of the Digikey product page.'''
+    price_tiers = {}
+    try:
+        for tr in soup.find('table', id='product-dollars').find_all('tr'):
+            try:
+                td = tr.find_all('td')
+                qty = int(re.sub('[^0-9]', '', td[0].text))
+                price_tiers[qty] = float(re.sub('[^0-9\.]', '', td[1].text))
+            except (TypeError, AttributeError, ValueError,
+                    IndexError):  # Happens when there's no <td> in table row.
+                continue
+    except AttributeError:
+        # This happens when no pricing info is found in the tree.
+        print 'No Digikey pricing information found!'
+        return 0  # Return empty price tiers.
+    if min(price_tiers) >= 100:
+        print "reel"
+    else:
+        while (price_tiers.get(quantity, None) == None):
+            quantity -= 1
+        print pnumber 
+        print price_tiers.get(quantity, None)
+        return price_tiers.get(quantity, None)
+    
 
 
 # File path du fichier
 # Todo: Inclure un file path
-fp = 'C:\Eclipse\KiCad_BoM_Eclipse\\Project_Template_bom.csv'
+fp = '/home/jean-francois/Git/Eclipse Solar Car/Template_Hardware/Project_Template/Project_Template_bom2.csv'
 
 
 # Lit le Bom genere par KiBom
+#get_digikey_price('535-13445-2-ND', 10)
 df1=pd.read_csv(fp)
 
 
@@ -54,7 +102,14 @@ df4 = df3[df3['Supplier'].notnull() & (df3['Supplier'] == "Digikey")& (df3['Manu
 # Remet l'index a zero
 df4 = df4.reset_index(drop=True)
 # Fait commencer l'index a 1
-df4.index =  df4.index + 1  
+df4.index =  df4.index + 1 
+
+#df4['Price'] = get_digikey_price(pnumber, quantity)
+
+df4['Unit price'] = df4.apply(lambda df4: get_digikey_price(df4['Supplier Part Number'], df4['Quantity Per PCB']), axis=1)
+df4['Ext price'] = df4['Unit price'] * df4['Quantity Per PCB']
+#print df4.values
+    
 # Ecrit dans un fichier csv les pieces chez digikey 
 df4.to_csv('DigikeyBom.csv')
 
